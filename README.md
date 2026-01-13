@@ -33,7 +33,7 @@ This starts:
 - FastAPI app on port 8080
 - Automatically connects them via Docker networking
 
-#### Option B: Real Firestore (Cloud Run / Production)
+#### Option B: Real Firestore (Cloud Run)
 
 This application uses **Application Default Credentials (ADC)** when deployed to Cloud Run.
 
