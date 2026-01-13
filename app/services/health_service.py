@@ -2,16 +2,30 @@
 Health data service for health tracking operations.
 Handles health data CRUD, filtering, and summary calculations.
 """
-from typing import List, Optional, Tuple
-from datetime import datetime, timezone
-import uuid
-import re
+# Standard library imports
 import base64
+import hashlib
 import json
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional, Tuple
+
+# Third-party imports
 from fastapi import Depends
+from fastapi.encoders import jsonable_encoder
 from google.cloud.firestore import Client, DocumentSnapshot
+from google.cloud.firestore_v1.base_query import FieldFilter
+
+# Local imports
+from app.cache import bump_user_version, get, get_user_version, set
 from app.database import get_db
-from app.models.health import HealthDataCreate, HealthDataResponse, HealthDataSummary
+from app.models.health import (
+    HealthDataCreate,
+    HealthDataResponse,
+    HealthDataSummary,
+    PaginatedHealthDataResponse,
+)
 
 
 class HealthDataNotFoundError(Exception):
@@ -108,12 +122,15 @@ class HealthService:
             "timestamp": health_data.timestamp,
             "steps": health_data.steps,
             "calories": health_data.calories,
-            "sleepHours": health_data.sleepHours,
+            "sleepHours": health_data.sleep_hours,
             "created_at": now
         }
         
         # Store in Firestore
         self.collection.document(entry_id).set(entry_doc)
+        
+        # Invalidate cache for this user
+        bump_user_version(user_id)
         
         return HealthDataResponse(
             id=entry_id,
@@ -121,7 +138,7 @@ class HealthService:
             timestamp=health_data.timestamp,
             steps=health_data.steps,
             calories=health_data.calories,
-            sleepHours=health_data.sleepHours,
+            sleep_hours=health_data.sleep_hours,
             created_at=now
         )
     
@@ -147,6 +164,13 @@ class HealthService:
         except (ValueError, KeyError, json.JSONDecodeError) as e:
             raise ValueError(f"Invalid cursor format: {str(e)}")
     
+    def _build_cache_key(self, user_id: str, start_date: Optional[datetime], end_date: Optional[datetime], cursor: Optional[str], limit: int, version: int) -> str:
+        """Build cache key for health data query."""
+        # Create hash of query parameters for shorter keys
+        query_str = f"{start_date.isoformat() if start_date else ''}:{end_date.isoformat() if end_date else ''}:{cursor or ''}:{limit}"
+        query_hash = hashlib.md5(query_str.encode()).hexdigest()[:8]
+        return f"health:{user_id}:range:v{version}:{query_hash}"
+    
     async def get_health_data(
         self,
         user_id: str,
@@ -154,9 +178,9 @@ class HealthService:
         end_date: Optional[datetime] = None,
         cursor: Optional[str] = None,
         limit: int = 50
-    ) -> Tuple[List[HealthDataResponse], Optional[str], bool]:
+    ) -> PaginatedHealthDataResponse:
         """
-        Get health data entries for a user with pagination support.
+        Get health data entries for a user with pagination support and caching.
         
         Args:
             user_id: User ID
@@ -166,14 +190,25 @@ class HealthService:
             limit: Maximum number of results (default 50, max 100)
             
         Returns:
-            Tuple of (entries, next_cursor, has_more)
+            PaginatedHealthDataResponse with entries, next_cursor, has_more, and limit
         """
+        # Get cache version for this user
+        version = get_user_version(user_id)
+        
+        # Try cache first
+        cache_key = self._build_cache_key(user_id, start_date, end_date, cursor, limit, version)
+        cached_data = get(cache_key)
+        
+        if cached_data:
+            cached_dict = json.loads(cached_data.decode())  # Decode bytes for Pydantic
+            return PaginatedHealthDataResponse(**cached_dict)
+        
+        # Cache miss - fetch from database
         # Validate limit
         if limit < 1 or limit > 100:
             limit = 50
         
         # Query Firestore for user's health data
-        from google.cloud.firestore_v1.base_query import FieldFilter
         query = self.collection.where(filter=FieldFilter("user_id", "==", user_id))
         
         # Apply date filters if provided
@@ -247,7 +282,20 @@ class HealthService:
                     last_timestamp = last_timestamp.replace(tzinfo=timezone.utc)
                 next_cursor = self.encode_cursor(last_timestamp, last_doc.id)
         
-        return entries, next_cursor, has_more
+        # Build response
+        response = PaginatedHealthDataResponse(
+            data=entries,
+            next_cursor=next_cursor,
+            has_more=has_more,
+            limit=limit
+        )
+        
+        # Cache the response (use jsonable_encoder for safe serialization)
+        # TTL: 5 minutes (300s) - health data doesn't change often, and cache is invalidated on writes
+        cache_data = jsonable_encoder(response)
+        set(cache_key, json.dumps(cache_data).encode(), ex=300)  # 5 minutes (300s)
+        
+        return response
     
     async def get_health_data_summary(
         self,
@@ -270,7 +318,8 @@ class HealthService:
             HealthDataNotFoundError: If no data found for user
         """
         # Get entries in date range (no pagination for summary - get all)
-        entries, _, _ = await self.get_health_data(user_id, start_date, end_date, limit=10000)
+        result = await self.get_health_data(user_id, start_date, end_date, limit=10000)
+        entries = result.data
         
         if not entries:
             raise HealthDataNotFoundError("User has no health data entries")
@@ -278,7 +327,7 @@ class HealthService:
         # Calculate statistics
         total_steps = sum(entry.steps for entry in entries)
         total_calories = sum(entry.calories for entry in entries)
-        total_sleep_hours = sum(entry.sleepHours for entry in entries)
+        total_sleep_hours = sum(entry.sleep_hours for entry in entries)
         
         num_entries = len(entries)
         average_calories = float(total_calories / num_entries) if num_entries > 0 else 0.0
@@ -287,7 +336,7 @@ class HealthService:
         return HealthDataSummary(
             total_steps=total_steps,
             average_calories=average_calories,
-            averageSleepHours=average_sleep_hours
+            average_sleep_hours=average_sleep_hours
         )
 
 def get_health_service(db: Client = Depends(get_db)) -> HealthService:

@@ -2,14 +2,20 @@
 User service for user management and authentication.
 Handles user registration, login, and user data operations.
 """
-from datetime import datetime, timezone
+# Standard library imports
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
+
+# Third-party imports
+import bcrypt
 from fastapi import Depends
 from google.cloud.firestore import Client
+from google.cloud.firestore_v1.base_query import FieldFilter
+
+# Local imports
 from app.database import get_db
 from app.models.user import CreateUser, User
-import bcrypt
 
 class UserNotFoundError(Exception):
     """Raised when a user is not found."""
@@ -55,7 +61,6 @@ class UserService:
             UserAlreadyExistsError: If email already exists
         """
         # Check if email already exists
-        from google.cloud.firestore_v1.base_query import FieldFilter
         email_query = self.collection.where(filter=FieldFilter("email", "==", user_data.email)).limit(1).stream()
         if list(email_query):
             raise UserAlreadyExistsError(f"Email {user_data.email} already registered")
@@ -96,7 +101,6 @@ class UserService:
         Returns:
             User document as dict, or None if not found
         """
-        from google.cloud.firestore_v1.base_query import FieldFilter
         query = self.collection.where(filter=FieldFilter("email", "==", email)).limit(1).stream()
         docs = list(query)
         

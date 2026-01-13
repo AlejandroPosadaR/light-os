@@ -2,17 +2,27 @@
 Health data endpoints with authentication and authorization.
 Prevents cross-user data access by verifying user_id matches authenticated user.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+# Standard library imports
+from typing import List, Optional
+
+# Third-party imports
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+# Local imports
 from app.dependencies import get_current_user, verify_user_access
 from app.database import get_db
-from app.models.health import HealthDataCreate, HealthDataResponse, HealthDataSummary, PaginatedHealthDataResponse
+from app.models.health import (
+    HealthDataCreate,
+    HealthDataResponse,
+    HealthDataSummary,
+    PaginatedHealthDataResponse,
+)
 from app.services.health_service import (
-    get_health_service,
+    HealthDataNotFoundError,
     HealthService,
     InvalidDateError,
-    HealthDataNotFoundError
+    get_health_service,
 )
-from typing import List, Optional
 
 health_router = APIRouter(prefix="/users", tags=["health"])
 
@@ -125,20 +135,13 @@ async def get_health_data(
             detail="start must be before or equal to end"
         )
     
-    # Get health data with pagination
-    entries, next_cursor, has_more = await health_service.get_health_data(
+    # Get health data with pagination (caching handled in service layer)
+    return await health_service.get_health_data(
         user_id, start_dt, end_dt, cursor, limit
-    )
-    
-    return PaginatedHealthDataResponse(
-        data=entries,
-        next_cursor=next_cursor,
-        has_more=has_more,
-        limit=limit
     )
 
 @health_router.get(
-    "/{user_id}/health-data/summary",
+    "/{user_id}/summary",
     response_model=HealthDataSummary,
     status_code=status.HTTP_200_OK,
     summary="Get summary of health data",
@@ -151,8 +154,8 @@ async def get_health_data(
     - `averageSleepHours`: Average sleep hours per entry
     
     **Query Parameters:**
-    - `start_date` (required): Start date in DD-MM-YYYY format (e.g., '08-01-2026')
-    - `end_date` (required): End date in DD-MM-YYYY format (e.g., '10-01-2026')
+    - `start` (required): Start date in DD-MM-YYYY format (e.g., '08-01-2026')
+    - `end` (required): End date in DD-MM-YYYY format (e.g., '10-01-2026')
     
     **Date Format:**
     - Only DD-MM-YYYY format is accepted (e.g., '08-01-2026' for January 8, 2026)
@@ -165,12 +168,12 @@ async def get_health_data(
 )
 async def get_health_data_summary(
     user_id: str,
-    start_date: str = Query(
+    start: str = Query(
         ...,
         description="Start date in DD-MM-YYYY format (e.g., '08-01-2026')",
         examples=["08-01-2026", "15-03-2026"]
     ),
-    end_date: str = Query(
+    end: str = Query(
         ...,
         description="End date in DD-MM-YYYY format (e.g., '10-01-2026')",
         examples=["10-01-2026", "20-03-2026"]
@@ -186,8 +189,8 @@ async def get_health_data_summary(
     """
     # Parse date strings
     try:
-        start_date_utc = health_service.parse_dd_mm_yyyy_date(start_date)
-        end_date_utc = health_service.parse_dd_mm_yyyy_date(end_date)
+        start_date_utc = health_service.parse_dd_mm_yyyy_date(start)
+        end_date_utc = health_service.parse_dd_mm_yyyy_date(end)
     except InvalidDateError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -198,7 +201,7 @@ async def get_health_data_summary(
     if start_date_utc > end_date_utc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date must be before or equal to end_date"
+            detail="start must be before or equal to end"
         )
     
     try:

@@ -228,7 +228,7 @@ class TestGetHealthData:
 
 
 class TestGetHealthDataSummary:
-    """Tests for GET /users/{user_id}/health-data/summary endpoint."""
+    """Tests for GET /users/{user_id}/summary endpoint."""
     
     @pytest.fixture
     def user_with_health_data(self, client, registered_user):
@@ -252,15 +252,15 @@ class TestGetHealthDataSummary:
         headers = user_with_health_data["headers"]
         
         response = client.get(
-            f"/users/{user_id}/health-data/summary",
-            params={"start_date": "08-01-2026", "end_date": "09-01-2026"},
+            f"/users/{user_id}/summary",
+            params={"start": "08-01-2026", "end": "09-01-2026"},
             headers=headers
         )
         
         assert response.status_code == 200
         data = response.json()
         assert data["total_steps"] == 12000  # 5000 + 7000
-        assert data["averageSleepHours"] == 7.5  # (7 + 8) / 2
+        assert data["averageSleepHours"] == 7.5  # (7 + 8) / 2 - JSON uses camelCase
         assert data["average_calories"] == 350.0  # (300 + 400) / 2
     
     def test_summary_no_data(self, client, registered_user):
@@ -269,8 +269,8 @@ class TestGetHealthDataSummary:
         headers = registered_user["headers"]
         
         response = client.get(
-            f"/users/{user_id}/health-data/summary",
-            params={"start_date": "01-01-2026", "end_date": "31-01-2026"},
+            f"/users/{user_id}/summary",
+            params={"start": "01-01-2026", "end": "31-01-2026"},
             headers=headers
         )
         
@@ -283,25 +283,25 @@ class TestGetHealthDataSummary:
         headers = registered_user["headers"]
         
         response = client.get(
-            f"/users/{user_id}/health-data/summary",
+            f"/users/{user_id}/summary",
             headers=headers
         )
         
         assert response.status_code == 422  # Missing required params
     
     def test_summary_invalid_date_range(self, client, registered_user):
-        """Test summary with start_date after end_date fails."""
+        """Test summary with start after end fails."""
         user_id = registered_user["user_id"]
         headers = registered_user["headers"]
         
         response = client.get(
-            f"/users/{user_id}/health-data/summary",
-            params={"start_date": "31-01-2026", "end_date": "01-01-2026"},
+            f"/users/{user_id}/summary",
+            params={"start": "31-01-2026", "end": "01-01-2026"},
             headers=headers
         )
         
         assert response.status_code == 400
-        assert "start_date must be before" in response.json()["detail"]
+        assert "start must be before" in response.json()["detail"]
 
 
 class TestHealthCheck:

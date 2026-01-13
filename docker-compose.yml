@@ -5,6 +5,7 @@ services:
     command: gcloud beta emulators firestore start --host-port=0.0.0.0:8080
     ports:
       - "8081:8080"
+
   app:
     build: .
     ports:
@@ -12,7 +13,15 @@ services:
     environment:
       - FIRESTORE_EMULATOR_HOST=firestore-emulator:8080
       - GCP_PROJECT_ID=test-project
-      - JWT_SECRET=your-secret-key-change-in-production
+      - JWT_SECRET=your-secret-key-change-in-production # In production we can use a secret manager 
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
+      - redis
       - firestore-emulator
     restart: unless-stopped
+    
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
