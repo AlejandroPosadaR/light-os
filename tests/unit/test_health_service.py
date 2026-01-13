@@ -10,7 +10,7 @@ from app.services.health_service import (
     InvalidDateError,
     HealthDataNotFoundError
 )
-from app.models.health import HealthDataCreate, HealthDataResponse
+from app.models.health import HealthDataCreate, HealthDataResponse, PaginatedHealthDataResponse
 
 
 class TestParseDdMmYyyyDate:
@@ -90,7 +90,7 @@ class TestCreateHealthData:
             timestamp=datetime(2026, 1, 8, 8, 30, tzinfo=timezone.utc),
             steps=5000,
             calories=300,
-            sleepHours=7.5
+            sleep_hours=7.5
         )
     
     @pytest.mark.asyncio
@@ -105,7 +105,7 @@ class TestCreateHealthData:
         assert result.user_id == "user123"
         assert result.steps == 5000
         assert result.calories == 300
-        assert result.sleepHours == 7.5
+        assert result.sleep_hours == 7.5
         assert result.id is not None
         assert result.created_at is not None
         assert result.created_at.tzinfo == timezone.utc
@@ -129,32 +129,44 @@ class TestGetHealthDataSummary:
             HealthDataResponse(
                 id="1", user_id="user123",
                 timestamp=now,
-                steps=5000, calories=300, sleepHours=7,
+                steps=5000, calories=300, sleep_hours=7,
                 created_at=now
             ),
             HealthDataResponse(
                 id="2", user_id="user123",
                 timestamp=now,
-                steps=7000, calories=400, sleepHours=8,
+                steps=7000, calories=400, sleep_hours=8,
                 created_at=now
             ),
         ]
         
-        # Patch get_health_data to return mock entries (now returns tuple)
-        with patch.object(health_service, 'get_health_data', return_value=(mock_entries, None, False)):
+        # Patch get_health_data to return PaginatedHealthDataResponse
+        mock_response = PaginatedHealthDataResponse(
+            data=mock_entries,
+            next_cursor=None,
+            has_more=False,
+            limit=10000
+        )
+        with patch.object(health_service, 'get_health_data', return_value=mock_response):
             start = datetime(2026, 1, 1, tzinfo=timezone.utc)
             end = datetime(2026, 1, 31, tzinfo=timezone.utc)
             
             result = await health_service.get_health_data_summary("user123", start, end)
             
             assert result.total_steps == 12000  # 5000 + 7000
-            assert result.averageSleepHours == 7.5  # (7 + 8) / 2
+            assert result.average_sleep_hours == 7.5  # (7 + 8) / 2
             assert result.average_calories == 350.0  # (300 + 400) / 2
     
     @pytest.mark.asyncio
     async def test_summary_no_data_raises_error(self, health_service):
         """Test that summary raises error when no data found."""
-        with patch.object(health_service, 'get_health_data', return_value=([], None, False)):
+        empty_response = PaginatedHealthDataResponse(
+            data=[],
+            next_cursor=None,
+            has_more=False,
+            limit=10000
+        )
+        with patch.object(health_service, 'get_health_data', return_value=empty_response):
             start = datetime(2026, 1, 1, tzinfo=timezone.utc)
             end = datetime(2026, 1, 31, tzinfo=timezone.utc)
             
@@ -258,7 +270,7 @@ class TestPagination:
         health_service = HealthService(mock_db)
         
         # Create mock documents that simulate Firestore query results
-        def create_mock_doc(doc_id: str, timestamp: datetime, steps: int, calories: int, sleepHours: float):
+        def create_mock_doc(doc_id: str, timestamp: datetime, steps: int, calories: int, sleep_hours: float):
             """Helper to create a mock Firestore document."""
             mock_doc = Mock()
             mock_doc.id = doc_id
@@ -268,7 +280,7 @@ class TestPagination:
                 "timestamp": timestamp,
                 "steps": steps,
                 "calories": calories,
-                "sleepHours": sleepHours,
+                "sleepHours": sleep_hours,
                 "created_at": timestamp
             }
             return mock_doc
@@ -318,38 +330,38 @@ class TestPagination:
         start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
         end_date = datetime(2024, 1, 31, tzinfo=timezone.utc)
         
-        entries, next_cursor, has_more = await health_service.get_health_data(
+        result = await health_service.get_health_data(
             "user123", start_date, end_date, cursor=None, limit=50
         )
         
         # Verify first page
-        assert len(entries) == 50
-        assert has_more is True
-        assert next_cursor is not None
+        assert len(result.data) == 50
+        assert result.has_more is True
+        assert result.next_cursor is not None
         
         # Verify query was called correctly
         mock_query1.limit.assert_called_with(51)  # limit + 1
         
         # Test second page with cursor
         # Mock cursor document lookup - use the last doc from first page
-        cursor_timestamp, cursor_doc_id = health_service.decode_cursor(next_cursor)
+        cursor_timestamp, cursor_doc_id = health_service.decode_cursor(result.next_cursor)
         mock_cursor_doc = create_mock_doc(
             cursor_doc_id, cursor_timestamp, 1000, 200, 7.5
         )
         mock_collection.document.return_value.get.return_value = mock_cursor_doc
         
-        entries2, next_cursor2, has_more2 = await health_service.get_health_data(
-            "user123", start_date, end_date, cursor=next_cursor, limit=50
+        result2 = await health_service.get_health_data(
+            "user123", start_date, end_date, cursor=result.next_cursor, limit=50
         )
         
         # Verify second page
-        assert len(entries2) == 4  # Remaining docs
-        assert has_more2 is False
-        assert next_cursor2 is None
+        assert len(result2.data) == 4  # Remaining docs
+        assert result2.has_more is False
+        assert result2.next_cursor is None
         
         # Verify no overlap between pages
-        first_page_ids = {entry.id for entry in entries}
-        second_page_ids = {entry.id for entry in entries2}
+        first_page_ids = {entry.id for entry in result.data}
+        second_page_ids = {entry.id for entry in result2.data}
         assert len(first_page_ids.intersection(second_page_ids)) == 0
     
     @pytest.mark.asyncio
@@ -397,11 +409,11 @@ class TestPagination:
         start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
         end_date = datetime(2024, 1, 31, tzinfo=timezone.utc)
         
-        entries, next_cursor, has_more = await health_service.get_health_data(
+        result = await health_service.get_health_data(
             "user123", start_date, end_date, cursor=None, limit=25
         )
         
         # Should return all 25, no more pages
-        assert len(entries) == 25
-        assert has_more is False
-        assert next_cursor is None
+        assert len(result.data) == 25
+        assert result.has_more is False
+        assert result.next_cursor is None

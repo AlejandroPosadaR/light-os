@@ -26,4 +26,5 @@ ENV PORT=8080
 
 # Run FastAPI app
 # Using shell form to support PORT env var (Cloud Run requirement)
-CMD ["bash", "-lc", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Disable uvicorn's default access logging to use our custom logging config
+CMD ["bash", "-lc", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --no-access-log"]

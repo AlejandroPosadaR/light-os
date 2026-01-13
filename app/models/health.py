@@ -27,12 +27,13 @@ class HealthDataCreate(BaseModel):
         description="Calories burned",
         examples=[450]
     )
-    sleepHours: float = Field(
+    sleep_hours: float = Field(
         ...,
         ge=0.0,
         le=24.0,
         description="Hours of sleep",
-        examples=[7.5]
+        examples=[7.5],
+        alias="sleepHours"
     )
     
     @field_validator('timestamp')
@@ -63,7 +64,8 @@ class HealthDataCreate(BaseModel):
                 "calories": 450,
                 "sleepHours": 7.5
             }
-        }
+        },
+        "populate_by_name": True  # Allow both snake_case and camelCase
     }
 
 
@@ -74,10 +76,11 @@ class HealthDataResponse(BaseModel):
     timestamp: datetime
     steps: int
     calories: int
-    sleepHours: float
+    sleep_hours: float = Field(..., alias="sleepHours")
     created_at: datetime = Field(..., description="Health data entry creation timestamp")
     
     model_config = {
+        "populate_by_name": True,  # Allow both snake_case and camelCase
         "json_schema_extra": {
             "example": {
                 "id": "abc123",
@@ -95,9 +98,10 @@ class HealthDataSummary(BaseModel):
     """Summary model for health data."""
     total_steps: int
     average_calories: float
-    averageSleepHours: float
+    average_sleep_hours: float = Field(..., alias="averageSleepHours")
     
     model_config = {
+        "populate_by_name": True,  # Allow both snake_case and camelCase
         "json_schema_extra": {
             "example": {
                 "total_steps": 15000,
