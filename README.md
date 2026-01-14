@@ -17,6 +17,11 @@ FastAPI application for health data tracking with JWT authentication and Firesto
 ```bash
 git clone https://github.com/AlejandroPosadaR/light-os.git
 cd light-os
+```
+
+## Local Development
+
+```bash
 docker-compose up
 ```
 
@@ -122,12 +127,42 @@ Configured automatically in `docker-compose.yml` for local development.
 
 ## Testing
 
+**Run tests with coverage:**
 ```bash
 docker-compose up -d
-docker-compose exec app pytest --cov=app --cov-report=html
+docker-compose exec app pytest --cov=app --cov-report=term --cov-report=html
+```
+
+**View coverage report:**
+```bash
+# Terminal output shows coverage summary
+# HTML report available at htmlcov/index.html
+
 open htmlcov/index.html  # macOS
 # xdg-open htmlcov/index.html  # Linux
 ```
+
+**Coverage results:**
+- **Overall coverage:** 83% (543 statements, 91 missed)
+- **66 tests:** 28 integration tests, 38 unit tests
+- **Unit tests:** Service layer logic (`tests/unit/`)
+- **Integration tests:** Full API endpoint testing (`tests/integration/`)
+- **Coverage report:** Generated in `htmlcov/` directory with detailed line-by-line coverage
+
+**Coverage by module:**
+| Module | Statements | Missed | Coverage |
+|--------|-----------|--------|----------|
+| `app/models/user.py` | 30 | 0 | 100% |
+| `app/routers/auth.py` | 25 | 0 | 100% |
+| `app/routers/health.py` | 31 | 0 | 100% |
+| `app/services/user_service.py` | 55 | 0 | 100% |
+| `app/dependencies.py` | 49 | 1 | 98% |
+| `app/models/health.py` | 38 | 2 | 95% |
+| `app/services/health_service.py` | 137 | 11 | 92% |
+| `app/main.py` | 25 | 2 | 92% |
+| `app/cache.py` | 54 | 10 | 81% |
+| `app/database.py` | 12 | 4 | 67% |
+| `app/rate_limiter.py` | 83 | 61 | 27% |
 
 ## API Endpoints
 

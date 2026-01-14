@@ -173,6 +173,20 @@ class TestGetHealthData:
         assert response.status_code == 400
         assert "Invalid date format" in response.json()["detail"]
     
+    def test_get_health_data_start_after_end(self, client, registered_user):
+        """Test getting health data with start date after end date fails."""
+        user_id = registered_user["user_id"]
+        headers = registered_user["headers"]
+        
+        response = client.get(
+            f"/users/{user_id}/health-data",
+            params={"start": "31-01-2026", "end": "01-01-2026"},
+            headers=headers
+        )
+        
+        assert response.status_code == 400
+        assert "start must be before" in response.json()["detail"]
+    
     def test_get_health_data_pagination(self, client, registered_user):
         """Test pagination with cursor and limit."""
         user_id = registered_user["user_id"]
@@ -288,6 +302,20 @@ class TestGetHealthDataSummary:
         )
         
         assert response.status_code == 422  # Missing required params
+    
+    def test_summary_invalid_date_format(self, client, registered_user):
+        """Test summary with invalid date format fails."""
+        user_id = registered_user["user_id"]
+        headers = registered_user["headers"]
+        
+        response = client.get(
+            f"/users/{user_id}/summary",
+            params={"start": "2026-01-08", "end": "2026-01-10"},  # Wrong format (should be DD-MM-YYYY)
+            headers=headers
+        )
+        
+        assert response.status_code == 400
+        assert "Invalid date format" in response.json()["detail"]
     
     def test_summary_invalid_date_range(self, client, registered_user):
         """Test summary with start after end fails."""

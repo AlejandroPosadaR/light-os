@@ -159,3 +159,39 @@ class TestGetUserByEmail:
         result = await user_service.get_user_by_email("nonexistent@example.com")
         
         assert result is None
+
+
+class TestGetUserById:
+    """Tests for getting user by ID."""
+    
+    @pytest.fixture
+    def user_service(self, mock_db):
+        """Create UserService with mocked database."""
+        return UserService(mock_db)
+    
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_found(self, user_service, mock_db):
+        """Test getting existing user by ID."""
+        mock_doc = Mock()
+        mock_doc.exists = True
+        mock_doc.to_dict.return_value = {"email": "test@example.com", "name": "Test"}
+        mock_doc.id = "user123"
+        
+        mock_db.collection.return_value.document.return_value.get.return_value = mock_doc
+        
+        result = await user_service.get_user_by_id("user123")
+        
+        assert result["email"] == "test@example.com"
+        assert result["id"] == "user123"
+    
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_not_found(self, user_service, mock_db):
+        """Test getting non-existent user by ID."""
+        mock_doc = Mock()
+        mock_doc.exists = False
+        
+        mock_db.collection.return_value.document.return_value.get.return_value = mock_doc
+        
+        result = await user_service.get_user_by_id("nonexistent-id")
+        
+        assert result is None

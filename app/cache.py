@@ -60,14 +60,6 @@ def set(key: str, value: bytes, ex: int = 60) -> None:
         logger.warning(f"Redis set failed for key {key}: {type(e).__name__}: {e}")
 
 
-def delete(key: str) -> None:
-    """Delete a key from cache."""
-    r = get_redis()
-    if not r:
-        return
-    r.delete(key)
-
-
 def get_user_version(user_id: str) -> int:
     """Get cache version for a user. Initializes to 1 if missing."""
     r = get_redis()
