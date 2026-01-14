@@ -1,47 +1,35 @@
-"""Simple Redis cache utilities with versioning support."""
-# Standard library imports
 import logging
 import os
-from typing import Optional
-
-# Third-party imports
 import redis
 
 logger = logging.getLogger(__name__)
-# Ensure logger is configured
 logger.setLevel(logging.INFO)
 logger.propagate = True
 
-_redis_client: Optional[redis.Redis] = None
+_redis_client: redis.Redis | None = None
 
 
-def get_redis() -> Optional[redis.Redis]:
-    """
-    Returns a Redis client if Redis is configured and reachable. Returns None if disabled.
-    
-    Works with:
-    - Local Redis (docker-compose): Set REDIS_HOST=redis, REDIS_PORT=6379
-    - Cloud Run Memorystore: Set REDIS_HOST=<memorystore-ip>, REDIS_PORT=6379
-    """
+def get_redis() -> redis.Redis | None:
+    """Get Redis client singleton. Returns None if Redis is not configured."""
     global _redis_client
     if _redis_client:
         return _redis_client
 
     host = os.getenv("REDIS_HOST")
     if not host:
-        return None  # Redis is optional
+        return None
 
     try:
         port = int(os.getenv("REDIS_PORT", "6379"))
         client = redis.Redis(
             host=host,
             port=port,
-            decode_responses=False,  # Return bytes for Pydantic compatibility
+            decode_responses=False,
             socket_connect_timeout=5,
             socket_timeout=5,
             retry_on_timeout=True,
         )
-        client.ping()  # fail fast if unreachable
+        client.ping()
         _redis_client = client
         logger.info(f"Redis connected: {host}:{port}")
         return client
@@ -50,26 +38,23 @@ def get_redis() -> Optional[redis.Redis]:
         return None
 
 
-def get(key: str) -> Optional[bytes]:
-    """Get value from cache (returns bytes for Pydantic compatibility)."""
+def get(key: str) -> bytes | None:
+    """Get value from cache."""
     r = get_redis()
     if not r:
         return None
     value = r.get(key)
-    found = value is not None
-    # Log cache get operation
-    logger.info(f"Getting key: {key}, found: {found}")
+    logger.info(f"Getting key: {key}, found: {value is not None}")
     return value
 
 
 def set(key: str, value: bytes, ex: int = 60) -> None:
-    """Set value in cache with expiration (accepts bytes for Pydantic compatibility)."""
+    """Set value in cache with expiration."""
     r = get_redis()
     if not r:
         return
     try:
         r.setex(key, ex, value)
-        # Log cache set operation
         logger.info(f"Setting key: {key}, length: {len(value)} bytes, ttl: {ex}s")
     except Exception as e:
         logger.warning(f"Redis set failed for key {key}: {type(e).__name__}: {e}")
@@ -93,7 +78,6 @@ def get_user_version(user_id: str) -> int:
     version = r.get(key)
 
     if version is None:
-        # Initialize atomically
         r.set(key, 1, nx=True)
         return 1
 
@@ -101,7 +85,7 @@ def get_user_version(user_id: str) -> int:
 
 
 def bump_user_version(user_id: str) -> None:
-    """Increment cache version for a user (call on data writes)."""
+    """Increment cache version for a user."""
     r = get_redis()
     if not r:
         return

@@ -1,18 +1,15 @@
 from pydantic import BaseModel, Field, EmailStr
-from typing import Optional
 import uuid
 from datetime import datetime
 
 
 class UserBase(BaseModel):
-    """Base user model with common fields."""
-    name: str = Field(..., min_length=2, max_length=100, description="User full name")
-    email: EmailStr = Field(..., description="User email address")
+    name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
 
 
 class CreateUser(UserBase):
-    """Model for creating/registering a new user (used for both /auth/register and /users POST)."""
-    password: str = Field(..., min_length=8, max_length=100, description="User password")
+    password: str = Field(..., min_length=8, max_length=100)
     
     model_config = {
         "json_schema_extra": {
@@ -26,9 +23,8 @@ class CreateUser(UserBase):
 
 
 class Login(BaseModel):
-    """Login request model."""
-    email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., description="User password")
+    email: EmailStr
+    password: str
     
     model_config = {
         "json_schema_extra": {
@@ -41,17 +37,15 @@ class Login(BaseModel):
 
 
 class UpdateUser(BaseModel):
-    """Model for updating user information (all fields optional)."""
-    name: Optional[str] = Field(None, min_length=2, max_length=100, description="User full name")
-    email: Optional[EmailStr] = Field(None, description="User email address")
+    name: str | None = Field(None, min_length=2, max_length=100)
+    email: EmailStr | None = None
 
 
 class User(UserBase):
-    """User model (password excluded from responses for security)."""
-    id: uuid.UUID = Field(..., description="User unique identifier")
-    created_at: datetime = Field(..., description="Account creation timestamp")
-    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
-    password: str = Field(exclude=True, description="Password (excluded from responses)")  
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+    password: str = Field(exclude=True)  
     
     model_config = {
         "from_attributes": True,
@@ -68,10 +62,9 @@ class User(UserBase):
 
 
 class Token(BaseModel):
-    """JWT token response model."""
-    access_token: str = Field(..., description="JWT access token")
-    token_type: str = Field(default="Bearer", description="Token type")
-    expires_in: Optional[int] = Field(default=0, description="Token expiration time in seconds")
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int | None = 0
     
     model_config = {
         "json_schema_extra": {
@@ -85,6 +78,5 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    """Token payload data (decoded from JWT)."""
-    user_id: str = Field(..., description="User ID from token (standard JWT 'sub' claim)")
-    email: Optional[str] = Field(default="", description="User email from token")
+    user_id: str
+    email: str | None = ""

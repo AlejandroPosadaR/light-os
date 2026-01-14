@@ -4,115 +4,62 @@ FastAPI application for health data tracking with JWT authentication and Firesto
 
 ## Prerequisites
 
-### For Local Development
-- **Git** - To clone the repository
-- **Docker and Docker Compose** - To run the application, Firestore emulator, and tests
-  - On macOS/Windows: Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
-  - On Linux: Install Docker Engine and Docker Compose
-  - **Important**: Make sure Docker Desktop/Docker daemon is running before starting the app
+**Local Development:**
+- Docker and Docker Compose
+- Git
 
-### For Cloud Run Deployment
-- **Google Cloud SDK** - Install from [cloud.google.com/sdk](https://cloud.google.com/sdk)
-- **GCP Project** - A Google Cloud Platform project with billing enabled
-- **Cloud Build API** - Must be enabled in your GCP project
+**Cloud Run Deployment:**
+- Google Cloud SDK
+- GCP project with billing enabled
 
 ## Setup
-
-### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/AlejandroPosadaR/light-os.git
 cd light-os
-```
-
-### 2. Start the Application
-
-**Before running**: Ensure Docker Desktop (macOS/Windows) or Docker daemon (Linux) is running.
-
-```bash
 docker-compose up
 ```
 
-This automatically:
-- Builds the app image
-- Starts the Firestore emulator
-- Starts the app
-- Connects them via Docker networking
-- Configures all required environment variables (see `docker-compose.yml`)
-
-The API will be available at:
-- **API Base**: http://localhost:8080
-- **Interactive Docs**: http://localhost:8080/docs
+API available at http://localhost:8080  
+Interactive docs: http://localhost:8080/docs
 
 ## Deploy to Cloud Run
 
-This service is containerized using Docker and deploys cleanly to Google Cloud Run using ADC (no secrets).
+### Prerequisites
 
-### Prerequisites for Cloud Run
+```bash
+# Install gcloud SDK
+brew install google-cloud-sdk  # macOS
+# Or: https://cloud.google.com/sdk/docs/install
 
-1. **Install Google Cloud SDK** (if not already installed):
-   ```bash
-   # macOS
-   brew install google-cloud-sdk
-   
-   # Or download from: https://cloud.google.com/sdk/docs/install
-   ```
+# Authenticate
+gcloud auth login
+gcloud auth application-default login
 
-2. **Authenticate with Google Cloud**:
-   ```bash
-   gcloud auth login
-   ```
+# Create project (if you don't have one, you'll need to set up billing for it)
+gcloud projects create YOUR_PROJECT_ID --name="Health API"
+# Or use existing project:
+gcloud config set project YOUR_PROJECT_ID
 
-3. **Set your GCP project**:
-   ```bash
-   # Replace YOUR_PROJECT_ID with your actual GCP project ID
-   # You can find it in the GCP Console or list projects with: gcloud projects list
-   gcloud config set project YOUR_PROJECT_ID
-   
-   # Verify it's set correctly:
-   gcloud config get-value project
-   ```
+# Enable APIs
+gcloud services enable cloudbuild.googleapis.com run.googleapis.com \
+  firestore.googleapis.com redis.googleapis.com vpcaccess.googleapis.com
 
-4. **Enable required APIs**:
-   ```bash
-   gcloud services enable cloudbuild.googleapis.com
-   gcloud services enable run.googleapis.com
-   gcloud services enable firestore.googleapis.com
-   gcloud services enable redis.googleapis.com
-   gcloud services enable vpcaccess.googleapis.com
-   ```
+# Initialize Firestore (one-time)
+gcloud firestore databases create --location=australia-southeast1 --type=firestore-native
 
-5. **Initialize Firestore** (one-time setup - choose Native mode):
-   ```bash
-   gcloud firestore databases create --region=australia-southeast1 --type=firestore-native
-   ```
-   ⚠️ **Important**: If you see "Database already exists", you can skip this step. Firestore is serverless - collections are created automatically on first write.
+# Create composite index (required, ~1-5 min)
+gcloud firestore indexes composite create \
+  --collection-group=health_data \
+  --query-scope=COLLECTION \
+  --field-config field-path=user_id,order=ASCENDING \
+  --field-config field-path=timestamp,order=ASCENDING \
+  --field-config field-path=__name__,order=ASCENDING
+```
 
-6. **Create Firestore composite index** (required for health data queries):
-   ```bash
-   gcloud firestore indexes composite create \
-     --collection-group=health_data \
-     --query-scope=COLLECTION \
-     --field-config field-path=user_id,order=ASCENDING \
-     --field-config field-path=timestamp,order=ASCENDING \
-     --field-config field-path=__name__,order=ASCENDING
-   ```
-   ⏱️ **Estimated time**: 1-5 minutes
-   
-   This index is required for queries that filter by `user_id` and `timestamp` range, then order by `timestamp` and `__name__`.
-   
-   **Important**: 
-   - The collection name `health_data` must match `COLLECTION_NAME` in `app/services/health_service.py`
-   - Uses the project from `gcloud config get-value project` (set in step 3)
+### Deployment
 
-7. **Set up Application Default Credentials** (for local testing with Cloud Firestore):
-   ```bash
-   gcloud auth application-default login
-   ```
-
-### Deploy to Cloud Run
-
-**Basic deployment** (without Redis):
+**Without Redis:**
 ```bash
 gcloud run deploy health-api \
   --source . \
@@ -121,30 +68,26 @@ gcloud run deploy health-api \
   --set-env-vars JWT_SECRET=your-secret-key-change-in-production
 ```
 
-**Deployment with Memorystore Redis**:
+**With Memorystore Redis:**
 ```bash
-# 1. Create Memorystore Redis instance
-# ⏱️ Estimated time: 5-20 minutes
+# Create Redis instance (~5-20 min)
 gcloud redis instances create health-redis \
   --size=1 \
   --region=australia-southeast1 \
   --redis-version=redis_7_0
 
-# 2. Get Redis IP (run in same terminal - needed for step 4)
-# Wait for step 1 to complete before running this
+# Get Redis IP (run in same terminal)
 REDIS_IP=$(gcloud redis instances describe health-redis \
   --region=australia-southeast1 \
   --format="value(host)")
 
-# 3. Create VPC connector (one-time setup per region)
-# ⏱️ Estimated time: 5-15 minutes
-# You can check status in another terminal: gcloud compute networks vpc-access connectors list --region=australia-southeast1
+# Create VPC connector (~5-15 min, one-time per region)
 gcloud compute networks vpc-access connectors create cr-connector \
   --region=australia-southeast1 \
   --network=default \
   --range=10.8.0.0/28
 
-# 4. Deploy Cloud Run with Redis (uses $REDIS_IP from step 2)
+# Deploy
 gcloud run deploy health-api \
   --source . \
   --region australia-southeast1 \
@@ -153,111 +96,91 @@ gcloud run deploy health-api \
   --set-env-vars REDIS_HOST=$REDIS_IP,REDIS_PORT=6379,JWT_SECRET=your-secret-key-change-in-production
 ```
 
-Cloud Run will:
-- Build the container from the included Dockerfile
-- Deploy the service
-- Output a public HTTPS URL
+**Notes:**
+- Use Secret Manager for `JWT_SECRET` in production
+- Rate limiting is **enabled by default** in production (disabled locally via `DISABLE_RATE_LIMIT=true` in docker-compose.yml)
 
-**Note**: In production, make sure to set the `JWT_SECRET` environment variable. For better security, use Google Cloud Secret Manager instead of plain environment variables.
+## Architecture
 
-### Redis (Memorystore)
-
-The application supports Redis-based caching.
-
-- **Local development**: Redis via Docker Compose
-- **Production**: Redis via GCP Memorystore
-
-Memorystore is a managed Redis service. The application code is identical—only the Redis host is configured via environment variables. Cloud Run connects to Memorystore using a VPC connector.
-
-### Authentication & Security
-- No credentials are committed to this repository
-- Cloud Run uses **Application Default Credentials**
-- Firestore access is granted via IAM (`roles/datastore.user`) on the service account
+**Authentication:** JWT tokens, bcrypt password hashing  
+**Database:** Firestore (Native mode)  
+**Caching:** Redis (optional, local via Docker, production via Memorystore)  
+**Security:** Application Default Credentials, IAM-based Firestore access
 
 ## Environment Variables
 
-**Local Development**: All environment variables are automatically configured in `docker-compose.yml`. No manual setup needed.
+Configured automatically in `docker-compose.yml` for local development.
 
-**Production (Cloud Run)**: Set via `--set-env-vars` flag or Cloud Run console.
-
-| Variable | Description | Required | Default |
-|----------|-------------|----------|---------|
-| `FIRESTORE_EMULATOR_HOST` | Firestore emulator host (e.g., `localhost:8081`) | No | - |
-| `GCP_PROJECT_ID` | Google Cloud Project ID | No | Uses ADC default |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account key JSON | No | Uses ADC |
-| `JWT_SECRET` | JWT signing secret | Yes (prod) | `your-secret-key-change-in-production` in `app/dependencies.py` |
-| `REDIS_HOST` | Redis host | No | - |
-| `REDIS_PORT` | Redis port | No | `6379` |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `JWT_SECRET` | JWT signing secret | Yes (prod) |
+| `REDIS_HOST` | Redis host | No |
+| `REDIS_PORT` | Redis port | No (default: 6379) |
+| `FIRESTORE_EMULATOR_HOST` | Firestore emulator host | No |
+| `GCP_PROJECT_ID` | GCP project ID | No (uses ADC) |
+| `DISABLE_RATE_LIMIT` | Disable rate limiting (for testing) | No (default: false, set to "true" to disable) |
 
 ## Testing
 
-Run tests using Docker Compose (recommended):
-
 ```bash
-# Start services
 docker-compose up -d
-
-# Run with coverage report
 docker-compose exec app pytest --cov=app --cov-report=html
-
-# Open coverage report (macOS)
-open htmlcov/index.html
-
-# Open coverage report (Linux)
-xdg-open htmlcov/index.html
+open htmlcov/index.html  # macOS
+# xdg-open htmlcov/index.html  # Linux
 ```
-
-The Firestore emulator is automatically started by Docker Compose, so all tests will work out of the box.
 
 ## API Endpoints
 
-### Authentication
-- `POST /auth/register` - Register a new user
-- `POST /auth/login` - Login and receive JWT token
-- `GET /auth/me` - Get current authenticated user info
+**Authentication:**
+- `POST /auth/register` - Register user
+- `POST /auth/login` - Get JWT token
+- `GET /auth/me` - Current user info
 
-### Health Data
-- `POST /users/{user_id}/health-data` - Create health data entry
-- `GET /users/{user_id}/health-data?start=DD-MM-YYYY&end=DD-MM-YYYY` - Get health data (date range required)
-- `GET /users/{user_id}/summary?start=DD-MM-YYYY&end=DD-MM-YYYY` - Get summary statistics
+**Health Data:**
+- `POST /users/{user_id}/health-data` - Create entry
+- `GET /users/{user_id}/health-data?start=DD-MM-YYYY&end=DD-MM-YYYY` - List entries (paginated)
+- `GET /users/{user_id}/summary?start=DD-MM-YYYY&end=DD-MM-YYYY` - Summary statistics
 
-### Example Request
+See `/docs` for interactive API documentation.
 
-```bash
-# Register a user
-curl -X POST "http://localhost:8080/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "John Doe",
-    "email": "john@example.com",
-    "password": "securepassword123"
-  }'
+## Bonus Features
 
-# Login
-curl -X POST "http://localhost:8080/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "john@example.com",
-    "password": "securepassword123"
-  }'
+### Caching Layer (Redis/Memorystore)
+- **Implementation:** Redis-based caching with versioning for cache invalidation
+- **Location:** `app/cache.py` and `app/services/health_service.py`
+- **Features:**
+  - GET request caching with configurable TTL (5 minutes default)
+  - Atomic cache versioning per user for invalidation on writes
+  - Graceful degradation when Redis is unavailable
+  - Works with local Redis (Docker) and production Memorystore
+- **Usage:** Automatic for health data queries; cache invalidated on data writes
 
-# Create health data (use token from login)
-curl -X POST "http://localhost:8080/users/{user_id}/health-data" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "timestamp": "2026-01-08T08:30:00Z",
-    "steps": 5000,
-    "calories": 300,
-    "sleepHours": 7.5
-  }'
-```
+### Input Validation & Error Handling
+- **Implementation:** FastAPI + Pydantic models with custom validators
+- **Features:**
+  - Automatic request validation via Pydantic models (`app/models/`)
+  - Custom date format validation (DD-MM-YYYY) with descriptive errors
+  - Proper HTTP status codes (400, 401, 403, 404, 429)
+  - JWT token validation with clear error messages
+  - User authorization checks preventing cross-user data access
 
-### JWT Configuration
+### Testing
+- **Coverage:** Unit and integration tests in `tests/` directory
+- **Unit Tests:** Service layer logic (`tests/unit/`)
+- **Integration Tests:** Full API endpoint testing (`tests/integration/`)
+- **Run:** `pytest --cov=app --cov-report=html`
+- **Coverage:** HTML report generated in `htmlcov/`
 
-JWT signing is configured via an environment variable (`JWT_SECRET`):
-- Local development: set it manually in your shell or `.env`
-- Cloud Run: provide it via environment variables or Secret Manager in the target project
+### Rate Limiting
+- **Implementation:** Redis-based token bucket algorithm (`app/rate_limiter.py`)
+- **Features:**
+  - Atomic operations via Redis Lua scripts
+  - Different limits for authenticated (120/min) vs anonymous (30/min) users
+  - IP-based tracking for anonymous users, user_id for authenticated
+  - Graceful fail-open if Redis unavailable
+  - Rate limit headers in responses (`X-RateLimit-Limit`, `X-RateLimit-Window`)
+- **Status Code:** 429 Too Many Requests with `Retry-After` header
+- **Configuration:** Enabled by default in production. Set `DISABLE_RATE_LIMIT=true` to disable (useful for local testing)
 
 ## Project Structure
 
@@ -267,6 +190,7 @@ light-os/
 │   ├── main.py              # FastAPI app entry point
 │   ├── database.py          # Firestore client configuration
 │   ├── dependencies.py      # JWT authentication dependencies
+│   ├── cache.py             # Redis caching
 │   ├── models/              # Pydantic models
 │   ├── routers/             # API route handlers
 │   └── services/            # Business logic layer
@@ -288,32 +212,14 @@ light-os/
 
 ## Troubleshooting
 
-**Issue: `docker-compose: command not found`**
-- Install Docker Desktop (macOS/Windows) or Docker Compose (Linux)
-- Verify installation: `docker-compose --version`
-
-**Issue: `Cannot connect to the Docker daemon`**
-- Make sure Docker Desktop is running (macOS/Windows)
-- On Linux: `sudo systemctl start docker`
-- Verify: `docker ps`
-
-**Issue: `gcloud: command not found`**
-- Install Google Cloud SDK (only needed for Cloud Run deployment)
-- See [Cloud Run deployment prerequisites](#prerequisites-for-cloud-run) above
-- Or use Docker Compose for local development (recommended)
-
-**Issue: `Your default credentials were not found`**
-- For local development: Set `FIRESTORE_EMULATOR_HOST=localhost:8081` (handled automatically by docker-compose)
-- For Cloud Run: Run `gcloud auth application-default login` or deploy to Cloud Run (uses ADC automatically)
-
-**Issue: Tests failing**
-- Make sure services are running: `docker-compose up -d`
-- The Firestore emulator is automatically configured by Docker Compose (no manual environment variables needed)
-- Unit tests don't require database
-
-**Issue: Port already in use**
-- If port 8080 is in use, modify `docker-compose.yml` to use a different port
-- Or stop the conflicting service: `lsof -ti:8080 | xargs kill` (macOS/Linux)
+| Issue | Solution |
+|-------|----------|
+| `docker-compose: command not found` | Install Docker Desktop/Compose |
+| `Cannot connect to Docker daemon` | Start Docker Desktop or `sudo systemctl start docker` |
+| `gcloud: command not found` | Install gcloud SDK (see Prerequisites) |
+| `Your default credentials were not found` | Run `gcloud auth application-default login` |
+| Tests failing | Ensure services running: `docker-compose up -d` |
+| Port 8080 in use | Modify `docker-compose.yml` or kill process: `lsof -ti:8080 \| xargs kill` |
 
 ## License
 

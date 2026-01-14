@@ -1,11 +1,10 @@
-"""Firestore database client configuration."""
 import os
 from google.cloud import firestore
 from google.auth.credentials import AnonymousCredentials
 
 
 def get_db() -> firestore.Client:
-    """Get Firestore client (uses emulator if FIRESTORE_EMULATOR_HOST is set)."""
+    """Get Firestore client. Uses emulator if FIRESTORE_EMULATOR_HOST is set."""
     emulator_host = os.getenv("FIRESTORE_EMULATOR_HOST")
     
     if emulator_host:

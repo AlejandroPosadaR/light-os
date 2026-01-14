@@ -1,16 +1,6 @@
-"""
-Health data endpoints with authentication and authorization.
-Prevents cross-user data access by verifying user_id matches authenticated user.
-"""
-# Standard library imports
-from typing import List, Optional
-
-# Third-party imports
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-# Local imports
-from app.dependencies import get_current_user, verify_user_access
-from app.database import get_db
+from app.dependencies import verify_user_access
 from app.models.health import (
     HealthDataCreate,
     HealthDataResponse,
@@ -30,19 +20,7 @@ health_router = APIRouter(prefix="/users", tags=["health"])
 @health_router.post(
     "/{user_id}/health-data",
     response_model=HealthDataResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Submit health data",
-    description="""
-    Submit health data for a user.
-    
-    **Security:**
-    - Requires authentication (Bearer token)
-    - User can only submit data for their own user_id
-    - Cross-user access is prevented
-    
-    **Authorization:**
-    The user_id in the URL path must match the authenticated user's ID from the JWT token.
-    """
+    status_code=status.HTTP_201_CREATED
 )
 async def create_health_data(
     user_id: str,
@@ -50,168 +28,60 @@ async def create_health_data(
     verified_user_id: str = Depends(verify_user_access),
     health_service: HealthService = Depends(get_health_service)
 ):
-    """
-    Create health data entry.
-    
-    The verify_user_access dependency ensures:
-    1. User is authenticated (has valid JWT token)
-    2. user_id in path matches authenticated user's ID
-    3. Returns 403 Forbidden if user tries to access another user's data
-    """
     return await health_service.create_health_data(user_id, health_data)
 
 
 @health_router.get(
     "/{user_id}/health-data",
-    response_model=PaginatedHealthDataResponse,
-    summary="Get user's health data",
-    description="""
-    Retrieve health data entries for a user within a date range with pagination.
-    
-    **Query Parameters:**
-    - `start` (required): Start date in DD-MM-YYYY format (e.g., '08-01-2026')
-    - `end` (required): End date in DD-MM-YYYY format (e.g., '10-01-2026')
-    - `cursor` (optional): Cursor for pagination (from previous response's next_cursor)
-    - `limit` (optional): Number of results per page (default: 50, max: 100)
-    
-    **Date Format:**
-    - Only DD-MM-YYYY format is accepted (e.g., '08-01-2026' for January 8, 2026)
-    - Dates are interpreted as midnight UTC
-    
-    **Pagination:**
-    - Use `next_cursor` from response to get the next page
-    - `has_more` indicates if there are more results
-    - Default limit is 50 items per page
-    
-    **Security:**
-    - Requires authentication
-    - User can only retrieve their own health data
-    - Cross-user access is prevented
-    """
+    response_model=PaginatedHealthDataResponse
 )
 async def get_health_data(
     user_id: str,
-    start: str = Query(
-        ...,
-        description="Start date in DD-MM-YYYY format (e.g., '08-01-2026')",
-        examples=["08-01-2026", "15-03-2026"]
-    ),
-    end: str = Query(
-        ...,
-        description="End date in DD-MM-YYYY format (e.g., '10-01-2026')",
-        examples=["10-01-2026", "20-03-2026"]
-    ),
-    cursor: Optional[str] = Query(
-        None,
-        description="Cursor for pagination (from previous response's next_cursor)",
-        examples=[None, "eyJ0aW1lc3RhbXAiOiIyMDI2LTAxLTA4VDA4OjMwOjAwWiIsImlkIjoiYWJjMTIzIn0="]
-    ),
-    limit: int = Query(
-        50,
-        ge=1,
-        le=100,
-        description="Number of results per page (default: 50, max: 100)",
-        examples=[50, 25, 100]
-    ),
+    start: str = Query(..., description="Start date in DD-MM-YYYY format"),
+    end: str = Query(..., description="End date in DD-MM-YYYY format"),
+    cursor: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=100),
     verified_user_id: str = Depends(verify_user_access),
     health_service: HealthService = Depends(get_health_service)
 ):
-    """
-    Get health data entries for the authenticated user within a date range with pagination.
-    
-    The verify_user_access dependency ensures the user can only see their own data.
-    """
-    # Parse date strings to datetime objects
     try:
         start_dt = health_service.parse_dd_mm_yyyy_date(start)
         end_dt = health_service.parse_dd_mm_yyyy_date(end)
     except InvalidDateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
-    # Validate date range
     if start_dt > end_dt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="start must be before or equal to end"
         )
     
-    # Get health data with pagination (caching handled in service layer)
-    return await health_service.get_health_data(
-        user_id, start_dt, end_dt, cursor, limit
-    )
+    return await health_service.get_health_data(user_id, start_dt, end_dt, cursor, limit)
 
 @health_router.get(
     "/{user_id}/summary",
-    response_model=HealthDataSummary,
-    status_code=status.HTTP_200_OK,
-    summary="Get summary of health data",
-    description="""
-    Retrieve a summary of health data for a user within a given date range.
-    
-    Returns:
-    - `total_steps`: Total steps across all entries in the date range
-    - `average_calories`: Average calories per entry
-    - `averageSleepHours`: Average sleep hours per entry
-    
-    **Query Parameters:**
-    - `start` (required): Start date in DD-MM-YYYY format (e.g., '08-01-2026')
-    - `end` (required): End date in DD-MM-YYYY format (e.g., '10-01-2026')
-    
-    **Date Format:**
-    - Only DD-MM-YYYY format is accepted (e.g., '08-01-2026' for January 8, 2026)
-    - Dates are interpreted as midnight UTC
-    
-    **Security:**
-    - Requires authentication
-    - User can only retrieve their own health data entries
-    """
+    response_model=HealthDataSummary
 )
 async def get_health_data_summary(
     user_id: str,
-    start: str = Query(
-        ...,
-        description="Start date in DD-MM-YYYY format (e.g., '08-01-2026')",
-        examples=["08-01-2026", "15-03-2026"]
-    ),
-    end: str = Query(
-        ...,
-        description="End date in DD-MM-YYYY format (e.g., '10-01-2026')",
-        examples=["10-01-2026", "20-03-2026"]
-    ),
+    start: str = Query(..., description="Start date in DD-MM-YYYY format"),
+    end: str = Query(..., description="End date in DD-MM-YYYY format"),
     verified_user_id: str = Depends(verify_user_access),
     health_service: HealthService = Depends(get_health_service)
 ):
-    """
-    Get a summary of health data for a user within a given date range.
-    Dates must be in DD-MM-YYYY format.
-    
-    Authorization is verified by verify_user_access dependency.
-    """
-    # Parse date strings
     try:
-        start_date_utc = health_service.parse_dd_mm_yyyy_date(start)
-        end_date_utc = health_service.parse_dd_mm_yyyy_date(end)
+        start_dt = health_service.parse_dd_mm_yyyy_date(start)
+        end_dt = health_service.parse_dd_mm_yyyy_date(end)
     except InvalidDateError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
-    # Validate date range
-    if start_date_utc > end_date_utc:
+    if start_dt > end_dt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="start must be before or equal to end"
         )
     
     try:
-        return await health_service.get_health_data_summary(
-            user_id,
-            start_date_utc,
-            end_date_utc
-        )
+        return await health_service.get_health_data_summary(user_id, start_dt, end_dt)
     except HealthDataNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
