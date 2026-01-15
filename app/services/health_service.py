@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import Depends
+from starlette.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from google.cloud.firestore import Client, DocumentSnapshot
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -80,7 +81,7 @@ class HealthService:
             "created_at": now
         }
         
-        self.collection.document(entry_id).set(entry_doc)
+        await run_in_threadpool(self.collection.document(entry_id).set, entry_doc)
         bump_user_version(user_id)
         
         return HealthDataResponse(
@@ -95,13 +96,19 @@ class HealthService:
     
     @staticmethod
     def encode_cursor(timestamp: datetime, doc_id: str) -> str:
-        """Encode pagination cursor from timestamp and document ID."""
+        """Encode pagination cursor from timestamp and document ID.
+        
+        Returns a base64-encoded JSON string for use in pagination queries.
+        """
         cursor_data = {"timestamp": timestamp.isoformat(), "id": doc_id}
         return base64.b64encode(json.dumps(cursor_data).encode()).decode()
     
     @staticmethod
     def decode_cursor(cursor: str) -> tuple[datetime, str]:
-        """Decode pagination cursor to timestamp and document ID."""
+        """Decode pagination cursor to timestamp and document ID.
+        
+        Raises ValueError if cursor format is invalid.
+        """
         try:
             cursor_data = json.loads(base64.b64decode(cursor.encode()).decode())
             timestamp = datetime.fromisoformat(cursor_data["timestamp"])
@@ -112,6 +119,11 @@ class HealthService:
             raise ValueError(f"Invalid cursor format: {str(e)}")
     
     def _build_cache_key(self, user_id: str, start_date: datetime | None, end_date: datetime | None, cursor: str | None, limit: int, version: int) -> str:
+        """Build a stable cache key for a user's query.
+        
+        Uses a per-user version to invalidate all cached query variants after writes,
+        and a short hash of query parameters to keep keys compact.
+        """
         query_str = f"{start_date.isoformat() if start_date else ''}:{end_date.isoformat() if end_date else ''}:{cursor or ''}:{limit}"
         query_hash = hashlib.md5(query_str.encode()).hexdigest()[:8]
         return f"health:{user_id}:range:v{version}:{query_hash}"
@@ -124,7 +136,11 @@ class HealthService:
         cursor: str | None = None,
         limit: int = 50
     ) -> PaginatedHealthDataResponse:
-        """Get health data entries with pagination and caching."""
+        """Return paginated health entries for a user.
+        
+        Results are ordered by (user_id, timestamp, __name__) to ensure deterministic pagination.
+        Uses a base64 cursor and caches responses for 5 minutes (per-user versioned).
+        """
         version = get_user_version(user_id)
         cache_key = self._build_cache_key(user_id, start_date, end_date, cursor, limit, version)
         cached_data = get(cache_key)
@@ -150,14 +166,14 @@ class HealthService:
             try:
                 cursor_timestamp, cursor_doc_id = self.decode_cursor(cursor)
                 cursor_doc_ref = self.collection.document(cursor_doc_id)
-                cursor_doc = cursor_doc_ref.get()
+                cursor_doc = await run_in_threadpool(cursor_doc_ref.get)
                 if cursor_doc.exists:
                     query = query.start_after(cursor_doc)
             except (ValueError, Exception):
                 pass
         
         query = query.limit(limit + 1)
-        docs = list(query.stream())
+        docs = await run_in_threadpool(list, query.stream())
         
         has_more = len(docs) > limit
         if has_more:

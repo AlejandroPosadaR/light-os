@@ -5,6 +5,7 @@ import bcrypt
 from fastapi import Depends
 from google.cloud.firestore import Client
 from google.cloud.firestore_v1.base_query import FieldFilter
+from starlette.concurrency import run_in_threadpool
 
 from app.database import get_db
 from app.models.user import CreateUser, User
@@ -34,7 +35,8 @@ class UserService:
     async def create_user(self, user_data: CreateUser) -> User:
         """Create a new user with hashed password."""
         email_query = self.collection.where(filter=FieldFilter("email", "==", user_data.email)).limit(1).stream()
-        if list(email_query):
+        docs = await run_in_threadpool(list, email_query)
+        if docs:
             raise UserAlreadyExistsError(f"Email {user_data.email} already registered")
         
         user_id = str(uuid.uuid4())
@@ -50,7 +52,7 @@ class UserService:
             "created_at": now,
         }
         
-        self.collection.document(user_id).set(user_doc)
+        await run_in_threadpool(self.collection.document(user_id).set, user_doc)
         
         return User(
             id=uuid.UUID(user_id),
@@ -63,7 +65,7 @@ class UserService:
     async def get_user_by_email(self, email: str) -> dict | None:
         """Get user by email address."""
         query = self.collection.where(filter=FieldFilter("email", "==", email)).limit(1).stream()
-        docs = list(query)
+        docs = await run_in_threadpool(list, query)
         
         if not docs:
             return None
@@ -87,7 +89,7 @@ class UserService:
     
     async def get_user_by_id(self, user_id: str) -> dict | None:
         """Get user by ID."""
-        doc = self.collection.document(user_id).get()
+        doc = await run_in_threadpool(self.collection.document(user_id).get)
         
         if not doc.exists:
             return None

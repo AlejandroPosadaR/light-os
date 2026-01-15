@@ -144,6 +144,7 @@ open htmlcov/index.html  # macOS
 
 **Coverage results:**
 - **Overall coverage:** 83% (543 statements, 91 missed)
+- **Core coverage:** 93% (excluding rate limiter - infrastructure code)
 - **66 tests:** 28 integration tests, 38 unit tests
 - **Unit tests:** Service layer logic (`tests/unit/`)
 - **Integration tests:** Full API endpoint testing (`tests/integration/`)
