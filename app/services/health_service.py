@@ -224,11 +224,15 @@ class HealthService:
         end_date: datetime
     ) -> HealthDataSummary:
         """Get summary statistics for health data within a date range."""
-        result = await self.get_health_data(user_id, start_date, end_date, limit=10000)
+        result = await self.get_health_data(user_id, start_date, end_date, limit=500)
         entries = result.data
         
         if not entries:
-            raise HealthDataNotFoundError("User has no health data entries")
+            return HealthDataSummary(
+                total_steps=0,
+                average_calories=0.0,
+                average_sleep_hours=0.0
+            )
         
         total_steps = sum(entry.steps for entry in entries)
         total_calories = sum(entry.calories for entry in entries)

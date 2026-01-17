@@ -165,6 +165,42 @@ open htmlcov/index.html  # macOS
 | `app/database.py` | 12 | 4 | 67% |
 | `app/rate_limiter.py` | 83 | 61 | 27% |
 
+## Performance & Load Testing
+
+This service was load-tested to evaluate latency, throughput, and stability under concurrent access patterns representative of a consumer health-tracking application.
+
+**Tooling**
+- Load testing: Grafana k6
+- Deployment: Google Cloud Run
+- Cache: Redis
+- Database: Firestore
+- Auth: JWT (Bearer tokens)
+
+**Test Setup**
+- Max virtual users: 25
+- Test duration: ~3.5 minutes
+- Traffic profile:
+  - Read-heavy workload (health data queries)
+  - Periodic write operations (health data creation)
+- Environment: Production-like Cloud Run deployment
+
+**Results**
+
+| Metric | Value |
+|--------|-------|
+| Requests / second | ~21.5 req/s |
+| Average latency | ~129 ms |
+| p50 latency | ~146 ms |
+| p90 latency | ~242 ms |
+| p95 latency | ~288 ms |
+| Total iterations | 4,127 |
+| Max concurrent users | 25 |
+
+**Latency Distribution**
+- p50: ~146 ms
+- p90: ~242 ms
+- p95: ~288 ms
+
 ## API Endpoints
 
 **Authentication:**
