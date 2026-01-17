@@ -8,7 +8,6 @@ from app.models.health import (
     PaginatedHealthDataResponse,
 )
 from app.services.health_service import (
-    HealthDataNotFoundError,
     HealthService,
     InvalidDateError,
     get_health_service,
@@ -81,7 +80,4 @@ async def get_health_data_summary(
             detail="start must be before or equal to end"
         )
     
-    try:
-        return await health_service.get_health_data_summary(user_id, start_dt, end_dt)
-    except HealthDataNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return await health_service.get_health_data_summary(user_id, start_dt, end_dt)

@@ -16,7 +16,7 @@ services:
       - JWT_SECRET=your-secret-key-change-in-production # In production we can use a secret manager 
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - DISABLE_RATE_LIMIT=true # Disable rate limiting for local development/testing
+      - DISABLE_RATE_LIMIT=false # Disable rate limiting for local development/testing
     depends_on:
       - redis
       - firestore-emulator

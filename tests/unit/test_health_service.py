@@ -8,9 +8,8 @@ from unittest.mock import Mock, MagicMock, patch
 from app.services.health_service import (
     HealthService,
     InvalidDateError,
-    HealthDataNotFoundError
 )
-from app.models.health import HealthDataCreate, HealthDataResponse, PaginatedHealthDataResponse
+from app.models.health import HealthDataCreate, HealthDataResponse, HealthDataSummary, PaginatedHealthDataResponse
 
 
 class TestParseDdMmYyyyDate:
@@ -158,8 +157,8 @@ class TestGetHealthDataSummary:
             assert result.average_calories == 350.0  # (300 + 400) / 2
     
     @pytest.mark.asyncio
-    async def test_summary_no_data_raises_error(self, health_service):
-        """Test that summary raises error when no data found."""
+    async def test_summary_no_data_returns_zeros(self, health_service):
+        """Test that summary returns zeros when no data found."""
         empty_response = PaginatedHealthDataResponse(
             data=[],
             next_cursor=None,
@@ -170,8 +169,12 @@ class TestGetHealthDataSummary:
             start = datetime(2026, 1, 1, tzinfo=timezone.utc)
             end = datetime(2026, 1, 31, tzinfo=timezone.utc)
             
-            with pytest.raises(HealthDataNotFoundError):
-                await health_service.get_health_data_summary("user123", start, end)
+            result = await health_service.get_health_data_summary("user123", start, end)
+            
+            assert isinstance(result, HealthDataSummary)
+            assert result.total_steps == 0
+            assert result.average_calories == 0.0
+            assert result.average_sleep_hours == 0.0
 
 
 class TestPagination:

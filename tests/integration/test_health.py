@@ -278,7 +278,7 @@ class TestGetHealthDataSummary:
         assert data["average_calories"] == 350.0  # (300 + 400) / 2
     
     def test_summary_no_data(self, client, registered_user):
-        """Test summary when no data exists."""
+        """Test summary when no data exists returns zeros."""
         user_id = registered_user["user_id"]
         headers = registered_user["headers"]
         
@@ -288,8 +288,11 @@ class TestGetHealthDataSummary:
             headers=headers
         )
         
-        assert response.status_code == 404
-        assert "no health data" in response.json()["detail"]
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_steps"] == 0
+        assert data["average_calories"] == 0.0
+        assert data["averageSleepHours"] == 0.0  # JSON uses camelCase alias
     
     def test_summary_missing_dates(self, client, registered_user):
         """Test summary without required dates fails."""
